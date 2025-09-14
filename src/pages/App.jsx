@@ -16,6 +16,11 @@ async function getTransformers() {
       // @vite-ignore prevents Vite from trying to pre-bundle external URL
       const mod = await import(/* @vite-ignore */ url)
       const { env } = mod
+      // Always load models from remote (HF/CDN) to avoid parsing SPA HTML as JSON
+      // See issue: fetching local model path would hit index.html and cause
+      // "Unexpected token '<'" when Transformers.js expects JSON files.
+      if (env) env.allowLocalModels = false
+
       // Compute wasm path relative to the loaded script location
       const base = new URL('./', url).toString()
       const wasmPath = new URL('wasm/', base).toString()
