@@ -20,8 +20,7 @@ export default function Impressum() {
           <p>99423 Weimar</p>
         </div>
         <div className="space-y-2">
-          <h3 className="text-xl font-semibold">Kontakt</h3>
-          <p>E-Mail: <a className="text-primary hover:underline" href="mailto:jan@schachtschabel.net">jan@schachtschabel.net</a></p>
+          <h3 className="text-xl font-semibold">Kontaktformular</h3>
           <form className="mt-3" action="mailto:jan@schachtschabel.net" method="post" encType="text/plain">
             <div className="grid gap-2 sm:grid-cols-2">
               <input name="name" required placeholder="Ihr Name" className="rounded-md bg-[#0b0f18] border border-slate-700/60 px-3 py-2" />

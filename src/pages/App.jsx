@@ -4,11 +4,31 @@ import { Link } from 'react-router-dom'
 // Runtime embedding via Transformers.js (loaded dynamically from CDN)
 async function getTransformers() {
   if (window.__tf_loaded) return window.__tf_loaded
-  const mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@3.0.0/dist/transformers.min.js')
-  const { env } = mod
-  env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/@xenova/transformers@3.0.0/dist/wasm/'
-  window.__tf_loaded = mod
-  return mod
+  const urls = [
+    'https://cdn.jsdelivr.net/npm/@xenova/transformers@2/dist/transformers.min.js',
+    'https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js',
+    'https://unpkg.com/@xenova/transformers@2/dist/transformers.min.js',
+    'https://esm.run/@xenova/transformers@2'
+  ]
+  let lastErr
+  for (const url of urls) {
+    try {
+      // @vite-ignore prevents Vite from trying to pre-bundle external URL
+      const mod = await import(/* @vite-ignore */ url)
+      const { env } = mod
+      // Compute wasm path relative to the loaded script location
+      const base = new URL('./', url).toString()
+      const wasmPath = new URL('wasm/', base).toString()
+      if (env?.backends?.onnx?.wasm) {
+        env.backends.onnx.wasm.wasmPaths = wasmPath
+      }
+      window.__tf_loaded = mod
+      return mod
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  throw new Error('Transformers.js konnte nicht geladen werden: ' + (lastErr?.message || String(lastErr)))
 }
 
 const DEFAULT_MODEL = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'

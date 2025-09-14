@@ -35,7 +35,7 @@ Die App lädt Datensätze aus `public/quant/` und zeigt sie im Dropdown an. Das 
       ├─ main.jsx             # Router ("/" Chat, "/impressum" Impressum)
       └─ pages/
           ├─ App.jsx         # Chat UI (Dropdown Datensatz, Top-K, Toggle Extraktion)
-          └─ Impressum.jsx   # Impressum & Kontaktformular (mailto)
+          └─ Impressum.jsx   # Impressum
 ```
 
 > Hinweis: Wenn Du dieses Verzeichnis als eigenes Repo an Vercel übergibst, ist alles vollständig „self‑contained“. 
@@ -76,7 +76,7 @@ Das Manifest `public/quant/datasets.json` listet auswählbare Datensätze:
 
 ## Embeddings vorberechnen (ohne API)
 
-Im Repo liegt das Script `scripts/precompute_sbert_embeddings.py` (Python), um aus einer QA-JSON-Datei kompakte SBERT-Assets zu generieren:
+Im Ordner `./scripts/` liegt das Script `precompute_sbert_embeddings.py` (Python), um aus einer QA-JSON-Datei kompakte SBERT-Assets zu generieren. Das Script verwendet dasselbe Embedding‑Modell wie die App zur Laufzeit (SBERT: `paraphrase-multilingual-MiniLM-L12-v2`), damit der Vektorraum 1:1 kompatibel ist.
 
 ### 1) Abhängigkeiten installieren
 
@@ -100,9 +100,15 @@ python .\precompute_sbert_embeddings.py \
   --answer-key answer
 ```
 
-- Modell: `paraphrase-multilingual-MiniLM-L12-v2` (384D) wird automatisch geladen
-- PCA: Standard 256D, kompatibel zur Runtime
-- Quantisierung: int8 (empfohlen für schnelle Cosinus-Suche)
+- Flags & Verhalten:
+  - `-i`: Pfad zur QA‑JSON (Array von Objekten mit Frage/Antwort‑Feldern)
+  - `--question-key` / `--answer-key`: Feldnamen, falls nicht exakt `question`/`answer`
+  - `--pca-dim 256`: PCA‑Zieldimension (Standard 256, passt zur App)
+  - `--quantize`: Int8‑Quantisierung (empfohlen, schnell & klein)
+  - `--out-dir`: Zielordner für die fünf Exportdateien (unter `public/quant/` der App)
+  - `--dataset-id`: Basename der Ausgabedateien (muss mit Manifest/Dropdown übereinstimmen)
+
+- Das Script lädt automatisch das Modell `paraphrase-multilingual-MiniLM-L12-v2` (384D), reduziert via PCA und normalisiert die Vektoren. Es schreibt fünf Dateien (siehe Struktur oben). In der `.meta.json` steht u. a. `providerId: "sbert"` – dieser Provider muss zur Laufzeit identisch sein (die App prüft das).
 
 Das Script schreibt nach `--out-dir` fünf Dateien (s. Struktur oben) und meldet u.a. die Anzahl erkannter QA-Paare:
 
@@ -111,6 +117,10 @@ Das Script schreibt nach `--out-dir` fünf Dateien (s. Struktur oben) und meldet
 ```
 
 Tipp: Für große Datensätze ist ein größerer Batch sinnvoll, z. B. `-c 128`.
+
+Hinweis: Die Fortschrittsanzeige zeigt Batches, nicht die Item‑Gesamtzahl. Beispiel: 34.465 Items bei Batchgröße 64 → ca. 539 Batches (Anzeige `20/539`).
+
+Optional: Statt einer großen Ursprungs‑JSON kann auch das kompakte Items‑JSON verwendet werden (z. B. `public/quant/qa_...items.json`) – dann entfällt ggf. Feld‑Mapping.
 
 ---
 
@@ -150,10 +160,9 @@ npm run dev
 
 ---
 
-## Impressum & Kontakt
+## Impressum
 
 - Seite: `/impressum`
-- Kontaktformular via `mailto:jan@schachtschabel.net`
 
 ---
 
