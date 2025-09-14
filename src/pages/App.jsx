@@ -72,6 +72,7 @@ export default function App() {
 
   const [embedPipe, setEmbedPipe] = useState(null)
   const [qaPipe, setQaPipe] = useState(null)
+  const [embedProgress, setEmbedProgress] = useState(1)
 
   const listRef = useRef(null)
 
@@ -162,10 +163,17 @@ export default function App() {
   async function ensureEmbedModel() {
     if (embedPipe) return embedPipe
     setStatus('Embedding lädt…')
+    setEmbedProgress(0)
     const { pipeline, env } = await getTransformers()
-    const pipe = await pipeline('feature-extraction', DEFAULT_MODEL)
+    const pipe = await pipeline('feature-extraction', DEFAULT_MODEL, {
+      quantized: true,
+      progress_callback: ({ loaded, total }) => {
+        if (total) setEmbedProgress(loaded / total)
+      }
+    })
     setEmbedPipe(pipe)
-    setStatus(s => s.replace('Embedding lädt…', 'Embedding aktiv'))
+    setStatus(s => s.replace('Embedding lädt…', 'Embedding aktiv (ONNX)'))
+    setEmbedProgress(1)
     return pipe
   }
 
@@ -174,9 +182,14 @@ export default function App() {
     try {
       setStatus('QA lädt…')
       const { pipeline } = await getTransformers()
-      const p = await pipeline('question-answering', DEFAULT_QA_MODEL)
+      const p = await pipeline('question-answering', DEFAULT_QA_MODEL, {
+        quantized: true,
+        progress_callback: ({ loaded, total }) => {
+          if (total) setStatus(`QA lädt… ${Math.round((loaded / total) * 100)}%`)
+        }
+      })
       setQaPipe(p)
-      setStatus(s => s.replace('QA lädt…', 'QA aktiv'))
+      setStatus(s => s.replace(/QA lädt….*$/, 'QA aktiv (ONNX)'))
       return p
     } catch (e) {
       setStatus('QA nicht verfügbar')
@@ -362,7 +375,14 @@ export default function App() {
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center gap-3 justify-between">
           <div className="flex items-center gap-3">
             <div className="font-semibold">Sachrichtiger QA-Chatbot</div>
-            <div className="text-xs text-muted">{status}</div>
+            <div className="flex flex-col">
+              <div className="text-xs text-muted">{status}</div>
+              {embedProgress > 0 && embedProgress < 1 && (
+                <div className="mt-1 h-1 w-32 rounded bg-slate-700/50">
+                  <div className="h-full bg-primary" style={{ width: `${Math.round(embedProgress * 100)}%` }} />
+                </div>
+              )}
+            </div>
           </div>
           <nav className="text-sm text-muted flex items-center gap-4">
             <Link className="hover:text-text" to="/impressum">Impressum</Link>
