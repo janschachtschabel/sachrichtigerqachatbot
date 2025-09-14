@@ -38,6 +38,13 @@ Die App lädt Datensätze aus `public/quant/` und zeigt sie im Dropdown an. Das 
           └─ Impressum.jsx   # Impressum
 ```
 
+Begleitende Tools (Repo‑Wurzel):
+
+```
+./scripts/
+  └─ precompute_sbert_embeddings.py   # SBERT-Precompute (PCA + Quantisierung), schreibt Assets nach <app>/public/quant/
+```
+
 > Hinweis: Wenn Du dieses Verzeichnis als eigenes Repo an Vercel übergibst, ist alles vollständig „self‑contained“. 
 
 ---

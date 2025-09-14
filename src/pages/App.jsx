@@ -70,22 +70,51 @@ export default function App() {
 
   const listRef = useRef(null)
 
+  function quantBases() {
+    // Try absolute root first (Vercel serving from app root), then relative (local mounts)
+    return ['/quant', './quant']
+  }
+
+  async function fetchJSONWithFallback(pathSuffix, cache = 'no-cache') {
+    const bases = quantBases()
+    let lastErr
+    for (const base of bases) {
+      try {
+        const url = `${base}${pathSuffix}`
+        const resp = await fetch(url, { cache })
+        const ct = resp.headers.get('content-type') || ''
+        if (!resp.ok || !ct.includes('application/json')) {
+          throw new Error(`Fetch not ok or not JSON (${resp.status}) at ${url}`)
+        }
+        return await resp.json()
+      } catch (e) {
+        lastErr = e
+      }
+    }
+    throw lastErr || new Error('JSON fetch failed')
+  }
+
+  async function fetchArrayBufferWithFallback(pathSuffix, cache = 'force-cache') {
+    const bases = quantBases()
+    let lastErr
+    for (const base of bases) {
+      try {
+        const url = `${base}${pathSuffix}`
+        const resp = await fetch(url, { cache })
+        if (!resp.ok) throw new Error(`Fetch not ok (${resp.status}) at ${url}`)
+        return await resp.arrayBuffer()
+      } catch (e) { lastErr = e }
+    }
+    throw lastErr || new Error('Binary fetch failed')
+  }
+
   useEffect(() => {
     const loadManifest = async () => {
       try {
-        const resp = await fetch('/quant/datasets.json', { cache: 'no-cache' })
-        if (resp.ok) {
-          const j = await resp.json()
-          const ds = Array.isArray(j?.datasets) ? j.datasets : []
-          setDatasets(ds)
-          if (ds.length > 0) {
-            setDatasetId(ds[0].id)
-          }
-        } else {
-          // Fallback: try to probe a known default
-          setDatasets([{ id: 'qa_Klexikon-Prod-180825_sbert', name: 'Klexikon Prod (SBERT)' }])
-          setDatasetId('qa_Klexikon-Prod-180825_sbert')
-        }
+        const j = await fetchJSONWithFallback('/datasets.json', 'no-cache')
+        const ds = Array.isArray(j?.datasets) ? j.datasets : []
+        setDatasets(ds)
+        if (ds.length > 0) setDatasetId(ds[0].id)
       } catch {
         setDatasets([{ id: 'qa_Klexikon-Prod-180825_sbert', name: 'Klexikon Prod (SBERT)' }])
         setDatasetId('qa_Klexikon-Prod-180825_sbert')
@@ -99,23 +128,20 @@ export default function App() {
     const loadAssets = async () => {
       try {
         setStatus('Lade Dataset…')
-        const base = `/quant/${datasetId}`
-        const metaResp = await fetch(`${base}.meta.json`, { cache: 'force-cache' })
-        if (!metaResp.ok) throw new Error('Meta nicht gefunden')
-        const m = await metaResp.json()
+        const meta = await fetchJSONWithFallback(`/${datasetId}.meta.json`, 'force-cache')
         const [embBuf, compBuf, meanBuf, itemsList] = await Promise.all([
-          fetch(`${base}.embeddings.bin`, { cache: 'force-cache' }).then(r => r.arrayBuffer()),
-          fetch(`${base}.pca_components.bin`, { cache: 'force-cache' }).then(r => r.arrayBuffer()),
-          fetch(`${base}.pca_mean.bin`, { cache: 'force-cache' }).then(r => r.arrayBuffer()),
-          fetch(`${base}.items.json`, { cache: 'force-cache' }).then(async r => (r.ok ? r.json() : [])),
+          fetchArrayBufferWithFallback(`/${datasetId}.embeddings.bin`),
+          fetchArrayBufferWithFallback(`/${datasetId}.pca_components.bin`),
+          fetchArrayBufferWithFallback(`/${datasetId}.pca_mean.bin`),
+          fetchJSONWithFallback(`/${datasetId}.items.json`, 'force-cache').catch(() => ([])),
         ])
-        const isInt8 = m.quant === 'int8'
+        const isInt8 = meta.quant === 'int8'
         setEmbeddings(isInt8 ? new Int8Array(embBuf) : new Float32Array(embBuf))
         setComponents(new Float32Array(compBuf))
         setMean(new Float32Array(meanBuf))
         setItems(Array.isArray(itemsList) ? itemsList : [])
-        setMeta(m)
-        setStatus(`Dataset: ${datasetId} · Items: ${m.rows ?? itemsList.length}`)
+        setMeta(meta)
+        setStatus(`Dataset: ${datasetId} · Items: ${meta.rows ?? itemsList.length}`)
       } catch (e) {
         setStatus(`Dataset-Ladefehler: ${e?.message || String(e)}`)
       }
