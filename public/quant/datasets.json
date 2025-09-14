@@ -1,0 +1,9 @@
+{
+  "datasets": [
+    {
+      "id": "qa_Klexikon-Prod-180825_sbert",
+      "name": "Klexikon Prod (SBERT)",
+      "description": "QA-Paare Klexikon, SBERT-Embeddings (256D PCA, int8)"
+    }
+  ]
+}
