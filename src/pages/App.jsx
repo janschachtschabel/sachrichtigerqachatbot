@@ -19,10 +19,8 @@ async function getTransformers() {
       // Always load models from remote (HF/CDN) to avoid parsing SPA HTML as JSON
       // See issue: fetching local model path would hit index.html and cause
       // "Unexpected token '<'" when Transformers.js expects JSON files.
-      if (env) {
-        env.allowLocalModels = false
-        env.localModelPath = ''
-      }
+        if (env) env.allowLocalModels = false
+        if (env) env.localModelPath = ''
 
       // Compute wasm path relative to the loaded script location
       const base = new URL('./', url).toString()
