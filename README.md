@@ -1,194 +1,221 @@
-# Sachrichtiger QA-Chatbot (API-frei)
+# QA Bot (Streamlit)
 
-Ein schlanker, sachrichtiger QA-Chatbot für den Browser. Keine Server-LLMs, keine API-Keys. Die App nutzt:
+Eine schlanke Python/Streamlit‑Variante des QA‑Bots mit:
 
-- React + Vite + Tailwind CSS
-- In-Browser Embeddings via Transformers.js (CDN)
-  - SBERT: `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
-- Ähnlichkeitssuche gegen vorab berechnete, komprimierte QA-Embeddings (PCA 256D, optional int8)
-- Optionales extraktives Highlighting (deutsches QA-Modell per Transformers.js) – lazy geladen
+- Embedding‑Suche (Sentence‑Transformers) und Precompute‑Workflow
+- Optionalem Cross‑Encoder Re‑Ranking (deaktivierbar, „nur Embedding“)
+- Extraktiver QA (mehrere Modelle; per‑Passage‑Prüfung, Aggregation, Confidence‑Schwelle)
+- Generativen Antworten (kleine LLMs) mit streng kontextgebundenem Prompt und Fallback
+- Optionaler QA‑Nachbearbeitung (Grammatik/Satzbau) über kleines LLM (ohne neue Fakten)
+- Umfassendem Einstellungs‑Panel (Embedding Top‑K, Cross‑Encoder Prüf‑K, Anzeige Top‑K, QA Top‑N, QA‑Confidence, Antwort‑Länge)
 
-Die App lädt Datensätze aus `public/quant/` und zeigt sie im Dropdown an. Das erste Dataset wird automatisch geladen.
+## Schnellstart
 
----
-
-## Projektstruktur
-
-```
-./sachrichtigerqachatbot/
-  ├─ index.html               # Vite-Entry (mountet #root)
-  ├─ vercel.json             # SPA-Rewrite für Deep Links (z.B. /impressum)
-  ├─ package.json
-  ├─ vite.config.js
-  ├─ tailwind.config.js
-  ├─ postcss.config.js
-  ├─ public/
-  │   └─ quant/
-  │       ├─ datasets.json                      # Manifest mit verfügbaren Datensätzen
-  │       ├─ <dataset_id>.meta.json             # Meta (providerId=sbert, model, rows, pca_dim, ...)
-  │       ├─ <dataset_id>.items.json            # QA-Paare (question/answer/...)
-  │       ├─ <dataset_id>.embeddings.bin        # Embeddings (int8 oder float32, zeilenweise)
-  │       ├─ <dataset_id>.pca_components.bin    # Float32 (source_dim x pca_dim), row-major
-  │       └─ <dataset_id>.pca_mean.bin          # Float32 (source_dim)
-  └─ src/
-      ├─ index.css            # Tailwind-Einstieg
-      ├─ main.jsx             # Router ("/" Chat, "/impressum" Impressum)
-      └─ pages/
-          ├─ App.jsx         # Chat UI (Dropdown Datensatz, Top-K, Toggle Extraktion)
-          └─ Impressum.jsx   # Impressum
-```
-
-Begleitende Tools (Repo‑Wurzel):
-
-```
-./scripts/
-  └─ precompute_sbert_embeddings.py   # SBERT-Precompute (PCA + Quantisierung), schreibt Assets nach <app>/public/quant/
-```
-
-> Hinweis: Wenn Du dieses Verzeichnis als eigenes Repo an Vercel übergibst, ist alles vollständig „self‑contained“. 
-
----
-
-## Datensätze bereitstellen
-
-Alle Dateien eines Datensatzes gehören in `public/quant/`. Beispiel (SBERT-Version des Klexikon-Datensatzes):
-
-```
-public/quant/
-  qa_Klexikon-Prod-180825_sbert.meta.json
-  qa_Klexikon-Prod-180825_sbert.items.json
-  qa_Klexikon-Prod-180825_sbert.embeddings.bin
-  qa_Klexikon-Prod-180825_sbert.pca_components.bin
-  qa_Klexikon-Prod-180825_sbert.pca_mean.bin
-```
-
-Das Manifest `public/quant/datasets.json` listet auswählbare Datensätze:
-
-```json
-{
-  "datasets": [
-    {
-      "id": "qa_Klexikon-Prod-180825_sbert",
-      "name": "Klexikon Prod (SBERT)",
-      "description": "QA-Paare Klexikon, SBERT-Embeddings (256D PCA, int8)"
-    }
-  ]
-}
-```
-
-- Die App lädt beim Start das erste Manifest-Element als Default.
-- Zusätzlich kann der User im Dropdown einen anderen Datensatz wählen.
-
----
-
-## Embeddings vorberechnen (ohne API)
-
-Im Ordner `./scripts/` liegt das Script `precompute_sbert_embeddings.py` (Python), um aus einer QA-JSON-Datei kompakte SBERT-Assets zu generieren. Das Script verwendet dasselbe Embedding‑Modell wie die App zur Laufzeit (SBERT: `paraphrase-multilingual-MiniLM-L12-v2`), damit der Vektorraum 1:1 kompatibel ist.
-
-### 1) Abhängigkeiten installieren
-
-```powershell
-pip install --upgrade sentence-transformers numpy tqdm
-```
-
-(Optional: Falls SciPy/SciKit Warnungen auftreten und Dich stören, ggf. `numpy<2.3.0`, `scipy<1.13` verwenden.)
-
-### 2) Ausführen
-
-Beispiel (Windows PowerShell), wenn Script und JSON im gleichen Ordner liegen:
-
-```powershell
-python .\precompute_sbert_embeddings.py \
-  -i .\qa_Klexikon-Prod-180825.json \
-  --out-dir ..\public\quant \
-  --dataset-id qa_Klexikon-Prod-180825_sbert \
-  --pca-dim 256 --quantize \
-  --question-key question \
-  --answer-key answer
-```
-
-- Flags & Verhalten:
-  - `-i`: Pfad zur QA‑JSON (Array von Objekten mit Frage/Antwort‑Feldern)
-  - `--question-key` / `--answer-key`: Feldnamen, falls nicht exakt `question`/`answer`
-  - `--pca-dim 256`: PCA‑Zieldimension (Standard 256, passt zur App)
-  - `--quantize`: Int8‑Quantisierung (empfohlen, schnell & klein)
-  - `--out-dir`: Zielordner für die fünf Exportdateien (unter `public/quant/` der App)
-  - `--dataset-id`: Basename der Ausgabedateien (muss mit Manifest/Dropdown übereinstimmen)
-
-- Das Script lädt automatisch das Modell `paraphrase-multilingual-MiniLM-L12-v2` (384D), reduziert via PCA und normalisiert die Vektoren. Es schreibt fünf Dateien (siehe Struktur oben). In der `.meta.json` steht u. a. `providerId: "sbert"` – dieser Provider muss zur Laufzeit identisch sein (die App prüft das).
-
-Das Script schreibt nach `--out-dir` fünf Dateien (s. Struktur oben) und meldet u.a. die Anzahl erkannter QA-Paare:
-
-```
-[SBERT] Loaded items: 34465; non-empty 'question': 34465
-```
-
-Tipp: Für große Datensätze ist ein größerer Batch sinnvoll, z. B. `-c 128`.
-
-Hinweis: Die Fortschrittsanzeige zeigt Batches, nicht die Item‑Gesamtzahl. Beispiel: 34.465 Items bei Batchgröße 64 → ca. 539 Batches (Anzeige `20/539`).
-
-Optional: Statt einer großen Ursprungs‑JSON kann auch das kompakte Items‑JSON verwendet werden (z. B. `public/quant/qa_...items.json`) – dann entfällt ggf. Feld‑Mapping.
-
----
-
-## Lokale Entwicklung
+1) Virtuelle Umgebung erstellen und Abhängigkeiten installieren
 
 ```bash
-# Im Ordner sachrichtigerqachatbot/
-npm install
-npm run dev
+python -m venv .venv
+. .venv/Scripts/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 ```
 
-- Öffne die Dev-URL (z. B. `http://localhost:5173/`).
-- Die App lädt `public/quant/datasets.json` und danach das erste Dataset automatisch.
+2) App starten
 
----
+```bash
+streamlit run app.py
+```
 
-## Produktion / Vercel
+Die App öffnet sich im Browser (Standard: http://localhost:8501).
 
-1. Dieses Verzeichnis als Repo zu Vercel verbinden (Projekt-Root = `sachrichtigerqachatbot/`).
-2. Build-Einstellungen (werden i. d. R. automatisch erkannt):
-   - Build Command: `npm run build`
-   - Output Directory: `dist`
-3. SPA-Rewrite: `vercel.json` ist enthalten, damit Deep Links wie `/impressum` funktionieren.
-4. Umgebungsvariablen: **nicht nötig**. Alles läuft im Browser.
+## Deployment
 
----
+### Streamlit Community Cloud
 
-## UI- und Funktionsüberblick
+- App-URL: Repo verbinden, Branch wählen.
+- App file: `qabotstreamlit/app.py`
+- Requirements file: `qabotstreamlit/requirements.txt`
+- Python: 3.10 oder höher
 
-- **Datensatz-Auswahl**: Dropdown (erstes Manifest-Element wird automatisch geladen)
-- **Top-K**: Anzahl der zurückgegebenen QA-Treffer
-- **Extraktives Highlight**: Optionales Markieren relevanter Antwortpassagen
-  - Versucht zunächst ein deutsches QA-Modell zu laden (lazy). Wenn nicht verfügbar, fallback auf satzbasierte SBERT-Ähnlichkeit.
-- **Labels**: Antworten werden mit
-  - **[GEPRÜFTE ANTWORT AUF QA-BASIS]**
-  - und bei geringer Übereinstimmung zusätzlich **[UNSICHERE ANTWORT AUF KI-BASIS]** ausgezeichnet.
+### Hugging Face Spaces (SDK: Streamlit)
 
----
+- Neues Space anlegen → SDK „Streamlit“.
+- `app_file`: `qabotstreamlit/app.py`
+- `requirements.txt` automatisch erkannt, sonst Pfad `qabotstreamlit/requirements.txt` setzen.
+- Optional: `TRANSFORMERS_CACHE` als persistenten Speicher konfigurieren (reduziert Kaltstart, vermeidet erneute Modelldownloads).
 
-## Impressum
+### Docker (empfohlen für Server)
 
-- Seite: `/impressum`
+Beispiel `Dockerfile` (Repo-Root als Build-Kontext):
 
----
+```dockerfile
+FROM python:3.10-slim
 
-## Lizenz
+# System-Pakete für Tokenizer/SSL (optional, aber oft hilfreich)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
-Apache License 2.0. Siehe [LICENSE](https://www.apache.org/licenses/LICENSE-2.0) oder Kurzfassung unten.
+WORKDIR /app/qabotstreamlit
+COPY qabotstreamlit/ /app/qabotstreamlit/
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+ENV PORT=8501 \
+    STREAMLIT_SERVER_HEADLESS=true \
+    HF_HOME=/app/cache/hf \
+    TRANSFORMERS_CACHE=/app/cache/hf
+
+EXPOSE 8501
+CMD ["streamlit", "run", "app.py", "--server.port", "8501", "--server.address", "0.0.0.0", "--server.headless", "true"]
+```
+
+Build & Run:
+
+```bash
+docker build -t qa-streamlit .
+docker run --rm -p 8501:8501 -v $(pwd)/modelcache:/app/cache/hf qa-streamlit
+```
+
+### Bare‑Metal / Systemd
+
+1) Virtuelle Umgebung wie oben (Schnellstart) anlegen und `pip install -r qabotstreamlit/requirements.txt` ausführen.
+2) Optional `~/.streamlit/config.toml` erstellen:
+
+```toml
+[server]
+headless = true
+enableCORS = false
+address = "0.0.0.0"
+port = 8501
+```
+
+3) Start: `streamlit run qabotstreamlit/app.py`
+
+4) Systemd-Service (optional, Beispiel):
+
+```ini
+[Unit]
+Description=QA Streamlit App
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/qa-chatbot
+Environment="TRANSFORMERS_CACHE=/opt/qa-chatbot/cache/hf"
+ExecStart=/opt/qa-chatbot/.venv/bin/streamlit run qabotstreamlit/app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Umgebung & Hinweise für Produktion
+
+- Modelle werden beim ersten Lauf heruntergeladen (Hugging Face). Für stabile Deployments einen persistenten Cache (`TRANSFORMERS_CACHE`) nutzen.
+- CPU/GPU: PyTorch wählt automatisch; für GPU auf passende CUDA‑Wheels achten.
+- Ports: `PORT` wird von einigen PaaS (Render/Railway/Heroku) vorgegeben. Mit `--server.port $PORT --server.address 0.0.0.0` starten.
+- Speicher: Kleine LLMs (0.5–1.7B) laufen meist noch auf CPU, dennoch an RAM/Storage denken.
+- Firewalls/Proxies: Evtl. HF‑Mirror/Offline‑Cache einrichten.
+
+## Datenformat
+
+Die App erwartet ein Dataset mit folgenden Feldern:
+
+- `question`: Frage (String)
+- `answer`: Antwort‑Text (String)
+- `wwwurl` (optional): Quelle/Link (String)
+
+Unterstützte Upload‑Formate im Precompute‑Tab:
+
+- JSON Lines (`.jsonl`) – eine JSON‑Zeile pro Objekt
+- JSON (`.json`) – Array von Objekten
+- CSV (`.csv`) – Spaltennamen wie oben
+
+## Precompute & Ablage
+
+- Nach dem Precompute werden die Dateien unter `qabotstreamlit/embeddings/` gespeichert:
+  - `<name>.npz` – Vektor‑Matrix (float32)
+  - `<name>.json` – Metadaten (Modell, Dim, Zeit)
+  - `<name>_items.json` – Originaleinträge (Frage/Antwort/URL)
+
+- Im Tab "Suche" wählst du anschließend denselben `<name>` als Embeddings‑Datensatz aus.
+
+## Modelle (Standard)
+
+- Embedding (Default):
+  - `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
+  - Alternativen: `sentence-transformers/all-MiniLM-L6-v2`, `intfloat/multilingual-e5-small`
+- Cross‑Encoder (Default):
+  - `cross-encoder/ms-marco-MiniLM-L-12-v2` (Option: „Deaktiviert (nur Embedding)“)
+- QA (Extraktiv, Default):
+  - `LLukas22/all-MiniLM-L12-v2-qa-all`
+- Generativ (klein, Auswahl u. a.):
+  - `PleIAs/Pleias-RAG-350M`, `Shahm/t5-small-german`, `google/gemma-3-1b-it`, `microsoft/Phi-3-mini-4k-instruct`, `Qwen/Qwen2-0.5B-Instruct`
+- QA‑Nachbearbeitung (optional):
+  - `Shahm/t5-small-german`, `google/mt5-small`, `aiassociates/t5-small-grammar-correction-german` u. a.
+
+Alle Modelle werden beim ersten Start automatisch geladen (Internetverbindung notwendig).
+
+## Modi: QA vs. Generativ
+
+- QA (Extraktiv):
+  - Top‑K Embedding‑Treffer → optional Cross‑Encoder → Top‑N Passagen werden einzeln vom QA‑Modell geprüft.
+  - Nur Antworten mit `confidence ≥ QA‑Schwelle` werden übernommen. Sätze werden dedupliziert und zu einer Antwort aggregiert, ohne mitten im Satz zu schneiden.
+  - Optional: Nachbearbeitung (Grammatik/Satzbau) via kleinem LLM, ohne neue Fakten.
+
+- Generativ:
+  - Strenger, kurzer Prompt („Nur aus <KONTEXT>; sonst ‚Nicht im Kontext gefunden.‘; 1–2 vollständige deutsche Sätze“).
+  - Decoder‑only: niedrige Temperatur (0.15), top_p=0.9, repetition_penalty≈1.15, no_repeat_ngram_size=3.
+  - T5/mT0: Beam‑Search (num_beams=4), length_penalty≈1.1, keine Sampling‑Streuung.
+
+## Einstellungen (Tab „Einstellungen“)
+
+- Embedding‑Modell
+- Cross‑Encoder (Re‑Ranker): Modellwahl oder „Deaktiviert (nur Embedding)“
+- Antwort‑Modus: „QA“ oder „Generativ“
+- QA‑Modell (extraktiv)
+- QA Nachbearbeitung (Grammatik/Satzbau): „Deaktiviert“ (Default) oder kleines LLM
+- Schwelle (Embedding & Re‑Ranker, ≥)
+- QA Confidence‑Schwelle (≥)
+- Embedding Top‑K (Kandidaten)
+- Cross‑Encoder Prüf‑K (wie viele Kandidaten tatsächlich bewertet werden)
+- Anzeige Top‑K (wie viele Ergebnisse gelistet werden)
+- QA Top‑N (einzeln prüfen)
+- Antwort‑Länge (Ziel, Zeichen) – Slider 100–2000
+
+Im Status‑Panel siehst du die aktive Konfiguration inkl. optionalem Post‑Edit‑Modell.
+
+## Hinweise
+
+- QA verarbeitet Passagen fensterweise (Token‑Limit‑sicher) und aggregiert ganze Sätze.
+- Re‑Ranker kann abgeschaltet werden (nur Embedding); Rang und Anzeige passen sich an.
+- CPU‑Betrieb ist möglich; GPU (CUDA) wird automatisch genutzt, falls verfügbar.
+- Bei ersten Modellstarts werden Gewichte heruntergeladen (Firewall/Proxy beachten).
+- Für stabile Ergebnisse können generative Modelle auf kleine, deterministische Einstellungen gesetzt werden.
+
+## Ordnerstruktur
 
 ```
-Copyright 2025 Jan Schachtschabel
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+qabotstreamlit/
+├─ app.py
+├─ requirements.txt
+├─ README.md
+├─ data/               # optional: Rohdaten
+├─ embeddings/         # abgelegte Embeddings (.npz, .json, _items.json)
+└─ utils/
+   ├─ __init__.py
+   ├─ embeddings.py    # Backend für Sentence‑Transformers
+   ├─ search.py        # Vektor‑Suche
+   ├─ reranker.py      # Cross‑Encoder Re‑Ranking
+   ├─ qa.py            # Extraktive QA (Fensterung, Aggregation)
+   ├─ generative.py    # Generative Antworten + Prompting/Decoding
+   ├─ post_edit.py     # QA‑Nachbearbeitung (Grammatik/Satzbau)
+   └─ eval.py          # Generative Quiz‑Bewertung (0–100%)
 ```
+
+## Troubleshooting
+
+- „Keine Treffer über der Embedding‑Schwelle“: Schwelle reduzieren oder Embedding‑Modell prüfen.
+- „Keine Treffer nach Re‑Ranker‑Schwelle“: Re‑Ranker deaktivieren oder Schwelle senken.
+- Zu knappe/große Antworten: „Antwort‑Länge (Ziel, Zeichen)“ anpassen; Aggregation schneidet keine Sätze.
+- Langsame Downloads/Ladevorgänge: Internet/Timeouts prüfen; Modelle werden gecacht.

@@ -1,0 +1,8 @@
+streamlit>=1.37
+sentence-transformers>=2.7.0
+transformers>=4.42.0
+torch>=2.2.0
+numpy>=1.24.0
+pandas>=2.2.0
+sentencepiece>=0.1.99
+regex>=2023.10.3

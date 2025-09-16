@@ -1,0 +1,9 @@
+{
+  "meta": {
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "text_mode": "question+answer",
+    "dim": 384,
+    "created": 1757956475
+  },
+  "count": 34465
+}
